@@ -5,11 +5,13 @@
 #include <functional>
 #include <iostream>
 #include <sstream>
+#include<ctime>
 #include <unordered_map>
 
 using namespace std;
 
 DataObject object_from_string(string &);
+vector<size_t> winners_from_dist(vector<double>);
 
 template <typename A>
 vector<A> tokenize_string(string &);
@@ -18,12 +20,10 @@ template <typename T>
 list<T> apply_file_by_lines(ifstream &ifs, function<T(string &)> fn);
 
 // clang-format off
-static const unordered_map<const char *, DecisionTree::TrainingType> enum_map =
+static const unordered_map<string,DecisionTree::TrainingType> enum_map =
 {
     {"optimized", DecisionTree::Optimized},
     {"randomized", DecisionTree::Randomized},
-    {"forest3", DecisionTree::Forest3},
-    {"forest15", DecisionTree::Forest15}
 };
 // clang-format on
 
@@ -39,6 +39,8 @@ void usage(const char *prog_name)
 
 int main(int argc, char const *argv[])
 {
+    srand((unsigned) time(0));
+
     if (argc < 4)
     {
         usage(argv[0]);
@@ -63,24 +65,32 @@ int main(int argc, char const *argv[])
         return 1;
     }
 
-    DecisionTree::TrainingType train_as = DecisionTree::None;
+    DecisionTree *dtree;
+    DecisionTree::TrainingType train_as = DecisionTree::Randomized;
+    if (strcasecmp(option, "forest15") == 0) dtree = new DecisionForest(15);
+    else if (strcasecmp(option, "forest3") == 0) dtree = new DecisionForest(3);
+    else
     {
-        for (auto p : enum_map)
+        bool found = false;
         {
-            if (strcasecmp(p.first, option) == 0)
+            for (auto p : enum_map)
             {
-                train_as = p.second;
-                break;
+                if (strcasecmp(p.first.c_str(), option) == 0)
+                {
+                    found = true;
+                    train_as = p.second;
+                    break;
+                }
             }
-        }
-        if (train_as == DecisionTree::None)
-        {
-            cerr << "Invalid option " << option << endl;
-            return 1;
+            
+            if (!found)
+            {
+                cerr << "Invalid option " << option << endl;
+                return 1;
+            }
+            dtree = new DecisionTree;
         }
     }
-
-    DecisionTree *dtree = new DecisionTree;
 
     auto training_objects = apply_file_by_lines<DataObject>(trainf, object_from_string);
     dtree->train(training_objects, train_as);
@@ -94,19 +104,23 @@ int main(int argc, char const *argv[])
 
     string st;
     size_t idx = 0;
+    double avg_accuracy = 0.0;
     while (getline(testf, st))
     {
-        vector<double> vec(tokenize_string<double>(st));
+        vector<double> vec = tokenize_string<double>(st);
 
         int actual_class = vec.back();
         vec.pop_back();
 
-        auto predicted = dtree->predict(vec);
+        auto predicted = winners_from_dist(dtree->predict(vec));
         double accuracy = find(predicted.begin(), predicted.end(), actual_class) != predicted.end()
                               ? (1.0 / predicted.size())
                               : 0;
+        avg_accuracy += accuracy;
         dbgf << "Object Index = " << idx++ << ", Result = " << predicted[0] << ", True Class = " << actual_class << ", Accuracy = " << accuracy << endl;
     }
+    
+    dbgf << "Classification Accuracy = " << avg_accuracy/idx << "\n";
     return 0;
 }
 
@@ -142,4 +156,26 @@ vector<A> tokenize_string(string &s)
     }
 
     return res;
+}
+
+vector<size_t> winners_from_dist(vector<double> v)
+{
+    std::vector<size_t> indices;
+    double current_max = 0;
+
+    for (size_t i = 0; i < v.size(); ++i)
+    {
+        if (v[i] > current_max)
+        {
+            current_max = v[i];
+            indices.clear();
+        }
+
+        if (v[i] == current_max)
+        {
+            indices.push_back(i);
+        }
+    }
+
+    return indices;
 }

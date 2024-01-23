@@ -1,5 +1,6 @@
-###
-*.out
+*.o
+a.out
 dtree
-.vscode/
 out.txt
+
+.vscode/
